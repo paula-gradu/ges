@@ -76,7 +76,7 @@ def get_conf_interval(a, b, confidence_level=.95):
 
 def gaussian_experiment(G, n, trials, confidence_level, \
                         loss, clip_data_range, eps_max, eps_thrsh, max_iter, \
-                        mu_range=(-2,2), sig_range=(1,1), debug=0):
+                        mu_range=(-10,10), sig_range=(1,5), debug=0):
     success = 0
     for trial in range(trials):
         data = sempler.LGANM(G, mu_range, sig_range).sample(n=n)
