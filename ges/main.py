@@ -137,7 +137,8 @@ def fit_bic(data, A0=None, phases=['forward', 'backward', 'turning'], iterate=Fa
     return fit(cache, A0, phases, iterate, debug)
 
 
-def fit(score_class, A0=None, phases=['forward', 'backward', 'turning'], iterate=False, debug=0):
+def fit(score_class, A0=None, phases=['forward', 'backward'], eps_noisy_max=0, \
+                           eps_abv_thrsh=0, max_iter=1, iterate=False, debug=0):
     """
     Run GES using a user defined score.
 
@@ -176,9 +177,11 @@ def fit(score_class, A0=None, phases=['forward', 'backward', 'turning'], iterate
         raise ValueError("Must specify at least one phase")
     # Unless indicated otherwise, initialize to the empty graph
     A0 = np.zeros((score_class.p, score_class.p)) if A0 is None else A0
+
     # GES procedure
     total_score = 0
     A, score_change = A0, np.Inf
+    threshold = np.random.laplace(scale=eps_abv_thrsh)
     # Run each phase
     while True:
         last_total_score = total_score
@@ -193,11 +196,14 @@ def fit(score_class, A0=None, phases=['forward', 'backward', 'turning'], iterate
                 raise ValueError('Invalid phase "%s" specified' % phase)
             print("\nGES %s phase start" % phase) if debug else None
             print("-------------------------") if debug else None
-            while True:
-                score_change, new_A = fun(A, score_class, max(0, debug - 1))
-                if score_change > 0:
+            added = 0
+            while added <= max_iter:
+                score_change, new_A = fun(A, score_class, eps_noisy_max, max(0, debug - 1))
+                score_change += np.random.laplace(scale=2*eps_abv_thrsh)
+                if score_change > threshold:
                     A = utils.pdag_to_cpdag(new_A)
                     total_score += score_change
+                    added += 1
                 else:
                     break
             print("-----------------------") if debug else None
@@ -209,7 +215,7 @@ def fit(score_class, A0=None, phases=['forward', 'backward', 'turning'], iterate
     return A, total_score
 
 
-def forward_step(A, cache, debug=0):
+def forward_step(A, cache, eps_noisy_max=0, debug=0):
     """
     Scores all valid insert operators that can be applied to the current
     CPDAG A, and applies the highest scoring one.
@@ -249,14 +255,14 @@ def forward_step(A, cache, debug=0):
         print("  No valid insert operators remain") if debug else None
         return 0, A
     else:
-        scores = [op[0] for op in valid_operators]
+        scores = [op[0] + np.random.laplace(scale=eps_noisy_max) for op in valid_operators]
         score, new_A, x, y, T = valid_operators[np.argmax(scores)]
         print("  Best operator: insert(%d, %d, %s) -> (%0.4f)" %
               (x, y, T, score)) if debug else None
         return score, new_A
 
 
-def backward_step(A, cache, debug=0):
+def backward_step(A, cache, eps_noisy_max=0, debug=0):
     """
     Scores all valid delete operators that can be applied to the current
     CPDAG A, and applies the highest scoring one.
@@ -302,7 +308,7 @@ def backward_step(A, cache, debug=0):
         print("  No valid delete operators remain") if debug else None
         return 0, A
     else:
-        scores = [op[0] for op in valid_operators]
+        scores = [op[0] + np.random.laplace(scale=eps_noisy_max) for op in valid_operators]
         score, new_A, x, y, H = valid_operators[np.argmax(scores)]
         print("  Best operator: delete(%d, %d, %s) -> (%0.4f)" %
               (x, y, H, score)) if debug else None
