@@ -68,7 +68,7 @@ class GeneralScore(DecomposableScore):
         if clip_data_range is not None:
             self.data = np.clip(self.data, -clip_data_range, clip_data_range)
             if loss == 'huber':
-                self.sensitivity = clip_data_range + 1/2 * self.epsilon
+                self.sensitivity = clip_data_range + 1/2 * self.regressor.epsilon
             elif loss == 'squared_error':
                 self.sensitivity = 1
         else:
