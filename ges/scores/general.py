@@ -109,5 +109,5 @@ class GeneralScore(DecomposableScore):
             mean_rss = (np.sum(resid[l2_ind]**2) + np.sum(resid[l1_ind])) / self.n
         else:
             print("Compatibility with specified loss is not implemented yet.")
-        local_score = mean_rss - l0_term
+        local_score = - mean_rss - l0_term
         return local_score

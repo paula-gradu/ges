@@ -202,8 +202,7 @@ def fit(score_class, A0=None, phases=['forward', 'backward'], eps_max=0, \
             added = 0
             while added <= max_iter:
                 score_change, new_A = fun(A, score_class, max_scale, max(0, debug - 1))
-                score_change += np.random.laplace(scale=2*thrsh_scale)
-                if score_change > threshold:
+                if score_change + np.random.laplace(scale=2*thrsh_scale) > threshold:
                     A = utils.pdag_to_cpdag(new_A)
                     total_score += score_change
                     added += 1
