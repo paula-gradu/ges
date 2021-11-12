@@ -35,7 +35,79 @@ algorithm described in Chickering's original GES paper from 2002.
 """
 
 import numpy as np
+import sempler
+import scipy.stats as st
 import itertools
+import ges
+from ges.scores.general import GeneralScore
+
+# --------------------------------------------------------------------
+# Experiment (i.e Paula's) utils
+
+def reachable(i, A):
+    visited = np.zeros(A.shape[0])
+    visited[i] = 1
+
+    to_search = list(pa(i, A))
+    reachable = []
+
+    while len(to_search):
+        to_search_new = []
+
+        for j in to_search:
+            if(visited[j]):
+                continue
+
+            visited[j] = 1
+            to_search_new += list(pa(i, A))
+            reachable.append(j)
+
+        to_search = to_search_new
+
+    return reachable
+
+def get_conf_interval(a, b, confidence_level=.95):
+    n = b.shape[0]
+    effect_size, resid, _, _ = np.linalg.lstsq(a, b, rcond=None)
+    sq_tot_dev = sum([(a_i - np.mean(a))**2 for a_i in a])
+    SE = np.sqrt(resid / ((n-2) * sq_tot_dev))
+    conf = st.norm.ppf(confidence_level) * SE
+    return (effect_size[0] - conf[0], effect_size[0] + conf[0])
+
+def gaussian_experiment(G, n, trials, confidence_level, \
+                        loss, clip_data_range, eps_max, eps_thrsh, max_iter, \
+                        mu_range=(0,0), sig_range=(1,1), debug=0):
+    success = 0
+    for trial in range(trials):
+        data = sempler.LGANM(G, mu_range, sig_range).sample(n=n)
+        pdag_estimate, _ = ges.fit(GeneralScore(data, loss=loss, clip_data_range=clip_data_range), \
+                                  eps_max=eps_max, eps_thrsh=eps_thrsh, max_iter=max_iter, debug=debug)
+        estimate = pdag_to_dag(pdag_estimate)
+        edges = np.argwhere(estimate)
+        if(len(edges) == 0): # GES found empty graph so it is correct and we stop early
+            success += 1
+            continue
+
+        # o/w choose edge w/ hopefully no backdoor & find confidence interval of effect size
+        for edge in edges:
+            i, j = edge # i->j
+            ## check if needs backdoor adj
+            backdoor = [k for k in reachable(j, estimate) if k in reachable(i, estimate)]
+            if(len(backdoor) == 0):
+                break
+
+        A = data[:, i].reshape((n,1))
+        for k in backdoor:
+            A = np.column_stack((A, data[:, k]))
+        b = data[:, j]
+
+        (conf_lb, conf_ub) = get_conf_interval(A, b)
+
+        # check if 0 is in the interval
+        if(conf_lb <= 0 and 0 <= conf_ub):
+            success+=1
+
+    return success / trials
 
 # --------------------------------------------------------------------
 # Graph functions for PDAGS

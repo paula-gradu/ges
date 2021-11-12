@@ -63,10 +63,17 @@ class GeneralScore(DecomposableScore):
         self.n, self.p = data.shape
         scaler = StandardScaler()
         self.data = scaler.fit_transform(data)
-        if clip_data_range is not None:
-            self.data = np.clip(self.data, clip_data_range)
-
         self.regressor = SGDRegressor(loss=loss, alpha=0, fit_intercept=False)
+
+        if clip_data_range is not None:
+            self.data = np.clip(self.data, -clip_data_range, clip_data_range)
+            if loss == 'huber':
+                self.sensitivity = clip_data_range + 1/2 * self.epsilon
+            elif loss == 'squared_error':
+                self.sensitivity = 1
+        else:
+            self.sensitivity = 1
+
 
     def _compute_local_score(self, x, pa):
         """
