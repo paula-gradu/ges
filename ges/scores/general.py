@@ -61,9 +61,8 @@ class GeneralScore(DecomposableScore):
         super().__init__(data, cache=cache, debug=debug)
 
         self.n, self.p = data.shape
-        scaler = StandardScaler()
-        self.data = scaler.fit_transform(data)
-        self.regressor = SGDRegressor(loss=loss, alpha=0, epsilon=1, fit_intercept=False)
+        self.data = data
+        self.regressor = SGDRegressor(loss=loss, alpha=0, epsilon=1., fit_intercept=True)
 
         if clip_data_range is not None:
             self.data = np.clip(self.data, -clip_data_range, clip_data_range)
@@ -98,7 +97,7 @@ class GeneralScore(DecomposableScore):
         if len(pa) > 0:
             X = self.data[:, list(pa)]
             self.regressor.fit(X, y)
-            resid = np.absolute(x - self.regressor.predict(X))
+            resid = np.absolute(y - self.regressor.predict(X))
         else:
             resid = np.absolute(y)
         if self.regressor.loss=='squared_error':
@@ -106,8 +105,8 @@ class GeneralScore(DecomposableScore):
         elif self.regressor.loss=='huber':
             l2_ind = np.where(resid <= self.regressor.epsilon)
             l1_ind = np.where(resid > self.regressor.epsilon)
-            mean_rss = (np.sum(resid[l2_ind]**2) + np.sum(resid[l1_ind])) / self.n
+            mean_rss = (np.sum(resid[l2_ind]**2) + self.regressor.epsilon * (2*np.sum(resid[l1_ind] - self.regressor.epsilon))) / self.n
         else:
             print("Compatibility with specified loss is not implemented yet.")
-        local_score = - mean_rss - l0_term
+        local_score = - mean_rss - self.regressor.epsilon * l0_term
         return local_score

@@ -66,49 +66,86 @@ def reachable(i, A):
 
     return reachable
 
-def get_conf_interval(a, b, confidence_level=.95):
+def get_conf_interval(a, b, err_lvl=.05):
     n = b.shape[0]
-    effect_size, resid, _, _ = np.linalg.lstsq(a, b, rcond=None)
-    sq_tot_dev = sum([(a_i - np.mean(a))**2 for a_i in a])
-    SE = np.sqrt(resid / ((n-2) * sq_tot_dev))
-    conf = st.norm.ppf(confidence_level) * SE
-    return (effect_size[0] - conf[0], effect_size[0] + conf[0])
+    effect_size, _, _, _ = np.linalg.lstsq(a, b, rcond=None)
+    SE = np.std(a @ effect_size - b, ddof=1)
+    conf = st.norm.ppf(1-err_lvl/2) * SE / np.sqrt(n)
+    #print(err_lvl, conf)
+    #print("effect+size:", effect_size)
+    return (effect_size[0] - conf, effect_size[0] + conf)
 
-def gaussian_experiment(G, n, trials, confidence_level, \
+def get_err_lvl(err_lvl, n, eps):
+    beta=2*np.exp(-n*eps**2/2)
+    max_inf = n * eps**2
+    new_err_lvl = (err_lvl - beta)*np.exp(-max_inf)
+    for k in np.arange(2, 64):
+        beta = err_lvl/k
+        max_inf = n/2 * eps**2 + eps * np.sqrt(n * np.log(2/beta)/2)
+        new_err_lvl = max(new_err_lvl, (err_lvl - beta)*np.exp(-max_inf))
+    return new_err_lvl
+
+def gaussian_experiment(G, n, trials, err_lvl, adj_CI, \
                         loss, clip_data_range, eps_max, eps_thrsh, max_iter, \
-                        mu_range=(-10,10), sig_range=(1,5), debug=0):
-    success = 0
+                        mu_range=(0,0), sig_range=(1,1), debug=0):
+    empty_graph = 0
+    avg_edge_no = 0
+    avg_invalid_inf = 0
+    max_invalid_inf = 0
+
+    if adj_CI is not None:
+        eps = 2*(max_iter*eps_max + eps_thrsh)
+        err_lvl = get_err_lvl(err_lvl, n, eps)
+        #print(err_lvl)
+
     for trial in range(trials):
         data = sempler.LGANM(G, mu_range, sig_range).sample(n=n)
         pdag_estimate, _ = ges.fit(GeneralScore(data, loss=loss, clip_data_range=clip_data_range), \
                                   eps_max=eps_max, eps_thrsh=eps_thrsh, max_iter=max_iter, debug=debug)
         estimate = pdag_to_dag(pdag_estimate)
-        edges = np.argwhere(estimate)
+        edges = np.argwhere(np.transpose(estimate) > 0)
 
         if(len(edges) == 0): # GES found empty graph so it is correct and we stop early
-            success += 1
+            empty_graph += 1
             continue
 
-        # o/w choose edge w/ hopefully no backdoor & find confidence interval of effect size
+        invalid_inf = 0
+        avg_edge_no += len(edges)
+        edge_no_backdoor = 0
+
         for edge in edges:
             i, j = edge # i->j
             ## check if needs backdoor adj
             backdoor = [k for k in reachable(j, estimate) if k in reachable(i, estimate)]
-            if(len(backdoor) == 0):
-                break
+            #for k in backdoor:
+            #    A = np.column_stack((A, data[:, k]))
 
-        A = data[:, i].reshape((n,1))
-        for k in backdoor:
-            A = np.column_stack((A, data[:, k]))
-        b = data[:, j]
+            if(len(backdoor) > 0):
+                print("has backdoor")
+                continue
 
-        (conf_lb, conf_ub) = get_conf_interval(A, b)
+            A = data[:, i].reshape((n,1))
 
-        # check if 0 is in the interval
-        if(conf_lb <= 0 and 0 <= conf_ub):
-            success+=1
+            edge_no_backdoor += 1
+            b = data[:, j]
+            (conf_lb, conf_ub) = get_conf_interval(A, b, err_lvl=err_lvl)
+            # check if 0 is in the interval
+            #print(G[i,j], (conf_lb, conf_ub))
+            if(conf_lb > G[i, j] or G[i, j] > conf_ub):
+                #print(G[i, j], conf_lb, conf_ub, err_lvl, st.norm.ppf(1-err_lvl/2))
+                invalid_inf += 1
+                #print(G[i, j], conf_lb, conf_ub)
 
-    return success / trials
+        avg_invalid_inf += invalid_inf/edge_no_backdoor
+        max_invalid_inf += (invalid_inf > 0)
+        #print(edge_no_backdoor, err_lvl)
+
+    if empty_graph > 0:
+        print("found an empty graph ", empty_graph, "times.")
+
+    #print(avg_invalid_inf)
+
+    return round(avg_invalid_inf/trials, 2)
 
 # --------------------------------------------------------------------
 # Graph functions for PDAGS
