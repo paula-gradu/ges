@@ -39,7 +39,8 @@ import sempler
 import scipy.stats as st
 import itertools
 import ges
-from ges.scores.general import GeneralScore
+from ges.scores.general_new import GeneralScore
+from ges.scores.gauss_obs_l0_pen import GaussObsL0Pen
 
 # --------------------------------------------------------------------
 # Experiment (i.e Paula's) utils
@@ -85,25 +86,58 @@ def get_err_lvl(err_lvl, n, eps):
         new_err_lvl = max(new_err_lvl, (err_lvl - beta)*np.exp(-max_inf))
     return new_err_lvl
 
-def gaussian_experiment(G, n, trials, err_lvl, adj_CI, \
+def get_p(err_lvl, n, eps):
+    beta=2*np.exp(-n*eps**2/2)
+    max_inf = n * eps**2
+    new_err_lvl = (err_lvl - beta)*np.exp(-max_inf)
+    p = np.log(2/err_lvl) / (np.log(2/err_lvl) + max_inf)
+    for k in np.arange(2, 64):
+        beta = err_lvl/k
+        max_inf = n/2 * eps**2 + eps * np.sqrt(n * np.log(2/beta)/2)
+        if (err_lvl - beta)*np.exp(-max_inf) > new_err_lvl:
+            new_err_lvl = (err_lvl - beta)*np.exp(-max_inf)
+            #print(max_inf)
+            p = np.log(2/(err_lvl)) / (np.log(2/(err_lvl-beta)) + max_inf)
+    return p
+
+def gaussian_experiment(G, n, trials, err_lvl, adj_CI, data_split, \
                         loss, clip_data_range, eps_max, eps_thrsh, max_iter, \
-                        mu_range=(0,0), sig_range=(1,1), debug=0):
+                        split=False, mu_range=(0,0), sig_range=(1,1), debug=0):
     empty_graph = 0
     avg_edge_no = 0
     avg_invalid_inf = 0
     max_invalid_inf = 0
+
+    eps = 2*(max_iter*eps_max + eps_thrsh)
+    p = get_p(err_lvl, n, eps)
+    print("opt p:", p)
+
+    if data_split:
+        eps_max = None
+        eps_thrsh=None
+        n = int(np.floor((1-p)*n))
+        print(n)
 
     if adj_CI is not None:
         eps = 2*(max_iter*eps_max + eps_thrsh)
         err_lvl = get_err_lvl(err_lvl, n, eps)
         #print(err_lvl)
 
+    avg_shd = 0
+
     for trial in range(trials):
         data = sempler.LGANM(G, mu_range, sig_range).sample(n=n)
-        pdag_estimate, _ = ges.fit(GeneralScore(data, loss=loss, clip_data_range=clip_data_range), \
-                                  eps_max=eps_max, eps_thrsh=eps_thrsh, max_iter=max_iter, debug=debug)
+        #pdag_estimate, _ = ges.fit(GeneralScore(data, loss=loss, clip_data_range=clip_data_range), \
+        #                          eps_max=eps_max, eps_thrsh=eps_thrsh, max_iter=max_iter, debug=debug)
+        #pdag_estimate, _ = ges.fit(GaussObsL0Pen(data), max_iter=max_iter)
+        pdag_estimate, _ = ges.fit(GeneralScore(data), eps_max=eps_max, eps_thrsh=eps_thrsh, max_iter=max_iter, debug=debug)
         estimate = pdag_to_dag(pdag_estimate)
         edges = np.argwhere(np.transpose(estimate) > 0)
+        pdag_edges = np.argwhere(np.transpose(pdag_estimate) > 0)
+        avg_shd += len(pdag_edges)/trials
+        print(pdag_estimate)
+
+        continue
 
         if(len(edges) == 0): # GES found empty graph so it is correct and we stop early
             empty_graph += 1
@@ -145,7 +179,7 @@ def gaussian_experiment(G, n, trials, err_lvl, adj_CI, \
 
     #print(avg_invalid_inf)
 
-    return round(avg_invalid_inf/trials, 2)
+    return round(avg_invalid_inf/trials, 2), avg_shd
 
 # --------------------------------------------------------------------
 # Graph functions for PDAGS

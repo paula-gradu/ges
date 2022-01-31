@@ -137,8 +137,8 @@ def fit_bic(data, A0=None, phases=['forward', 'backward', 'turning'], iterate=Fa
     return fit(cache, A0, phases, iterate, debug)
 
 
-def fit(score_class, A0=None, phases=['forward', 'backward'], eps_max=0, \
-                           eps_thrsh=0, max_iter=1, iterate=False, debug=0):
+def fit(score_class, A0=None, phases=['forward', 'backward'], eps_max=None, \
+                           eps_thrsh=None, max_iter=1, iterate=False, debug=0):
     """
     Run GES using a user defined score.
 
@@ -181,7 +181,8 @@ def fit(score_class, A0=None, phases=['forward', 'backward'], eps_max=0, \
     # GES procedure
     total_score = 0
     A, score_change = A0, np.Inf
-    noise_scale = lambda eps : 4*score_class.sensitivity/(eps * score_class.n)
+    if eps_max or eps_thrsh is not None:
+        noise_scale = lambda eps : 4*score_class.sensitivity/(eps * score_class.n)
     max_scale = 0 if eps_max is None else noise_scale(eps_max)
     thrsh_scale = 0 if eps_thrsh is None else noise_scale(eps_thrsh)
     threshold = np.random.laplace(scale=thrsh_scale)
